@@ -1,0 +1,29 @@
+### VS Code ###
+**/.vscode/*
+
+### JSON ###
+.markdownlint.json
+
+### Terraform ###
+
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+
+# Ignore local .tfvars files and overrides
+#
+_example.tfvars
+_temp.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
+example: *tfplan*

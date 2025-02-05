@@ -1,0 +1,8 @@
+quiet: true
+soft-fail: true
+framework: terraform
+skip-path: tests
+
+# https://www.checkov.io/5.Policy%20Index/terraform.html
+# skip-check:
+  # Some setting here.
