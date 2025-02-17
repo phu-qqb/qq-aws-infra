@@ -1,220 +1,148 @@
+# variables.tf
+variable "region" {
+  default = "eu-west-2"
+}
+
+
+
+
+
+
+# Random password generation
+resource "random_password" "ad_admin_password" {
+  length  = 16
+  special = true
+}
+
+resource "random_password" "user_passwords" {
+  for_each = { for user in var.user_list : split("@", user)[0] => user }
+
+  length  = 16
+  special = true
+}
+
+resource "random_password" "rds_password" {
+  length  = 16
+  special = true
+}
+
+# main.tf
 provider "aws" {
   region = var.region
 }
 
-# Custom VPC
-resource "aws_vpc" "main" {
+# VPC and Network Configuration
+resource "aws_vpc" "vpc_quantum_qb" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
+  enable_dns_support   = true
+
   tags = {
-    Name = "CustomVPC"
+    Name = "vpc-quantum-qb"
   }
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
+resource "aws_internet_gateway" "igw_qq" {
+  vpc_id = aws_vpc.vpc_quantum_qb.id
+
   tags = {
-    Name = "MainIGW"
+    Name = "igw-qq"
   }
 }
 
-# Subnets
-resource "aws_subnet" "untrusted" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.untrusted_subnet_cidr
-  availability_zone = var.azs[0]
-  tags = {
-    Name = "UntrustedSubnet"
-  }
-}
-
-resource "aws_subnet" "trusted" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.trusted_subnet_cidr
-  availability_zone = var.azs[1]
-  tags = {
-    Name = "TrustedSubnet"
-  }
-}
-
-# NAT Gateway (Public subnet required)
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.3.0/24"
-  availability_zone       = var.azs[0]
-  map_public_ip_on_launch = true
-  tags = {
-    Name = "PublicSubnet"
-  }
-}
-
-resource "aws_eip" "nat" {
+resource "aws_eip" "eip_nat_qq" {
   domain = "vpc"
 }
 
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public.id
+# Public subnet for NAT Gateway
+resource "aws_subnet" "subnet_nat_public_qq" {
+  vpc_id                  = aws_vpc.vpc_quantum_qb.id
+  cidr_block              = "10.0.0.0/24"
+  map_public_ip_on_launch = true
+
   tags = {
-    Name = "MainNAT"
+    Name = "subnet-nat-public-qq"
   }
 }
 
-# Route Tables
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
+# NAT Gateway
+resource "aws_nat_gateway" "nat_qq" {
+  allocation_id = aws_eip.eip_nat_qq.id
+  subnet_id     = aws_subnet.subnet_nat_public_qq.id
+
+  tags = {
+    Name = "nat-qq"
+  }
+}
+
+# Private subnets
+resource "aws_subnet" "subnet_trusted_private_qq" {
+  count             = 2
+  vpc_id            = aws_vpc.vpc_quantum_qb.id
+  cidr_block        = "10.0.${count.index + 1}.0/24"
+  availability_zone = "eu-west-2${count.index == 0 ? "a" : "b"}"
+
+  tags = {
+    Name = "subnet-trusted-private-qq-${count.index + 1}"
+  }
+}
+
+# Route tables
+resource "aws_route_table" "rtb_nat_public_qq" {
+  vpc_id = aws_vpc.vpc_quantum_qb.id
+
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
+    gateway_id = aws_internet_gateway.igw_qq.id
+  }
+
+  tags = {
+    Name = "rtb-nat-public-qq"
   }
 }
 
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
+resource "aws_route_table" "rtb_trusted_private_qq" {
+  vpc_id = aws_vpc.vpc_quantum_qb.id
 
-resource "aws_route_table" "untrusted" {
-  vpc_id = aws_vpc.main.id
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
+    nat_gateway_id = aws_nat_gateway.nat_qq.id
+  }
+
+  tags = {
+    Name = "rtb-trusted-private-qq"
   }
 }
 
-resource "aws_route_table_association" "untrusted" {
-  subnet_id      = aws_subnet.untrusted.id
-  route_table_id = aws_route_table.untrusted.id
-}
-
-resource "aws_route_table" "trusted" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-}
-
-resource "aws_route_table_association" "trusted" {
-  subnet_id      = aws_subnet.trusted.id
-  route_table_id = aws_route_table.trusted.id
-}
-
-# Security Groups
-resource "aws_security_group" "untrusted_workspaces" {
-  name        = "untrusted-workspaces"
-  description = "Allow RDP from Organization IPs"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 3389
-    to_port     = 3389
-    protocol    = "tcp"
-    cidr_blocks = var.organization_ips
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_security_group" "trusted_resources" {
-  name        = "trusted-resources"
-  description = "Allow internal communication"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-# AWS Managed Microsoft AD
-resource "aws_directory_service_directory" "ad" {
-  name     = "corp.example.com"
-  password = var.ad_admin_password
-  size     = "Small"
+# Active Directory
+resource "aws_directory_service_directory" "dir_workspaces_qq" {
+  name     = var.domain_name
+  password = random_password.ad_admin_password.result
+  edition  = "Standard"
   type     = "MicrosoftAD"
 
   vpc_settings {
-    vpc_id     = aws_vpc.main.id
-    subnet_ids = [aws_subnet.untrusted.id, aws_subnet.trusted.id]
+    vpc_id     = aws_vpc.vpc_quantum_qb.id
+    subnet_ids = aws_subnet.subnet_trusted_private_qq[*].id
+  }
+
+  tags = {
+    Name = "dir-workspaces-qq"
   }
 }
 
-# WorkSpaces
-resource "aws_workspaces_workspace" "untrusted" {
-  count                          = 2
-  bundle_id                      = var.workspace_bundle_id
-  directory_id                   = aws_directory_service_directory.ad.id
-  user_name                      = "user${count.index + 1}@corp.example.com"
-  root_volume_encryption_enabled = true
-  user_volume_encryption_enabled = true
-  subnet_id                      = aws_subnet.untrusted.id
-}
+# DHCP Options Set
+resource "aws_vpc_dhcp_options" "dhcp_qq" {
+  domain_name         = var.domain_name
+  domain_name_servers = aws_directory_service_directory.dir_workspaces_qq.dns_ip_addresses
 
-resource "aws_workspaces_workspace" "trusted" {
-  count                          = 4 # 3 users + 1 application
-  bundle_id                      = var.workspace_bundle_id
-  directory_id                   = aws_directory_service_directory.ad.id
-  user_name                      = count.index < 3 ? "user${count.index + 1}@corp.example.com" : "app@corp.example.com"
-  root_volume_encryption_enabled = true
-  user_volume_encryption_enabled = true
-  subnet_id                      = aws_subnet.trusted.id
-}
-
-# RDS MSSQL Instances
-resource "aws_db_subnet_group" "trusted" {
-  name       = "trusted-db-subnet-group"
-  subnet_ids = [aws_subnet.trusted.id]
-}
-
-resource "aws_db_instance" "mssql" {
-  count                  = 2
-  identifier             = "mssql-instance-${count.index}"
-  engine                 = "sqlserver-ex"
-  instance_class         = "db.t3.micro"
-  allocated_storage      = 20
-  username               = var.rds_username
-  password               = var.rds_password
-  db_subnet_group_name   = aws_db_subnet_group.trusted.name
-  vpc_security_group_ids = [aws_security_group.trusted_resources.id]
-  skip_final_snapshot    = true
-}
-
-# RDS Proxy
-resource "aws_db_proxy" "mssql_proxy" {
-  name                   = "mssql-proxy"
-  debug_logging          = false
-  engine_family          = "SQLSERVER"
-  idle_client_timeout    = 1800
-  require_tls            = true
-  role_arn               = aws_iam_role.rds_proxy.arn
-  vpc_security_group_ids = [aws_security_group.trusted_resources.id]
-  vpc_subnet_ids         = [aws_subnet.trusted.id]
-
-  auth {
-    auth_scheme = "SECRETS"
-    secret_arn  = aws_secretsmanager_secret.rds_credentials.arn
+  tags = {
+    Name = "dhcp-qq"
   }
 }
 
-resource "aws_db_proxy_target" "mssql" {
-  count                  = 2
-  db_proxy_name          = aws_db_proxy.mssql_proxy.name
-  target_group_name      = "default"
-  db_instance_identifier = aws_db_instance.mssql[count.index].id
+# Workspace Directory
+resource "aws_workspaces_directory" "wsdir_qq" {
+  directory_id = aws_directory_service_directory.dir_workspaces_qq.id
+  subnet_ids   = aws_subnet.subnet_trusted_private_qq[*].id
 }
