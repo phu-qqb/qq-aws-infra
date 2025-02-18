@@ -1,30 +1,11 @@
-# variables.tf
-variable "region" {
-  default = "eu-west-2"
-}
 
 
 
 
 
 
-# Random password generation
-resource "random_password" "ad_admin_password" {
-  length  = 16
-  special = true
-}
 
-resource "random_password" "user_passwords" {
-  for_each = { for user in var.user_list : split("@", user)[0] => user }
 
-  length  = 16
-  special = true
-}
-
-resource "random_password" "rds_password" {
-  length  = 16
-  special = true
-}
 
 # main.tf
 provider "aws" {
