@@ -1,9 +1,7 @@
-variable "workspace_dev_bundle_id" {
-  description = "Bundle ID for developer workspaces"
-  default = "wsb-gk1wpk43z"
-}
-
-variable "workspace_user_bundle_id" {
-  description = "Bundle ID for user workspaces"
-  default = "wsb-bh8rsxt14"
-}
+variable "aws_security_group_workspaces_qq" {}
+variable "subnets_trusted" {}
+variable "aws_directory_service_directory" {}
+variable "dev_users" {}
+variable "dev_image_id" {}
+variable "guest_users" {}
+variable "guest_image_id" {}
