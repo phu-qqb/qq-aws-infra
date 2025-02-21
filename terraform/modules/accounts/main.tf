@@ -7,10 +7,19 @@ resource "random_password" "user_passwords" {
 locals {
   domain_name = var.domain_name
   max_retry_attempts = 100
-  retry_sleep_seconds = 3
+  retry_sleep_seconds = 2
   dev_users = {
     for user in var.dev_users_list:
     user => {name = user, password = random_password.user_passwords[index(var.dev_users_list, user)].result}
+  }
+  guest_users = {
+    for user in var.guest_users_list:
+    user => {name = user, password = random_password.user_passwords[index(var.guest_users_list, user)].result}
+  }
+  app_users_list = ["app_dev"]
+  app_users = {
+    for user in local.app_users_list:
+    user => {name = user, password = random_password.user_passwords[index(local.app_users_list, user)].result}
   }
 }
 
@@ -35,31 +44,67 @@ resource "null_resource" "ds-data-enable-access" {
     command = "aws ds enable-directory-data-access --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}"
   }
   depends_on = [aws_directory_service_directory.dir_workspaces_qq]
-}
-
-resource "null_resource" "ad_add_group_command" {
-  provisioner "local-exec" {
-    command     = format(local.is_windows ? local.powershell_script : local.bash_script, local.ad_add_group_command)
-    interpreter = local.interpreter
-  }
-
-  depends_on = [null_resource.ds-data-enable-access]
-
   triggers = {
-    dummy = var.retry_sleep_seconds
     timestamp    = timestamp()
   }
 }
 
-resource "null_resource" "ds-data-add-to-domain-users" {
+resource "null_resource" "ad_add_user_group_command" {
+  provisioner "local-exec" {
+    command     = format(local.is_windows ? local.powershell_script : local.bash_script, local.ad_add_user_group_command)
+    interpreter = local.interpreter
+  }
+
+  depends_on = [null_resource.ds-data-enable-access]
+  triggers = {
+    timestamp    = timestamp()
+  }
+}
+
+resource "null_resource" "ad_add_dev_group_command" {
+  provisioner "local-exec" {
+    command     = format(local.is_windows ? local.powershell_script : local.bash_script, local.ad_add_dev_group_command)
+    interpreter = local.interpreter
+  }
+
+  depends_on = [null_resource.ds-data-enable-access]
+  triggers = {
+    timestamp    = timestamp()
+  }
+}
+
+resource "null_resource" "ds-data-add-to-guest-users" {
   for_each = local.dev_users
   provisioner "local-exec" {
     command = "aws ds-data create-user --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}  --sam-account-name ${each.value.name}"
   }
   provisioner "local-exec" {
-    command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password ${each.value.password}"
+    command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password \"${each.value.password}\""
   }
-  depends_on = [null_resource.ad_add_group_command]
+  provisioner "local-exec" {
+    command = "aws ds-data add-group-member --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --group-name UserGuestQQ --member-name ${each.value.name}"
+  }
+  depends_on = [null_resource.ad_add_user_group_command]
+  triggers = {
+    timestamp    = timestamp()
+  }
+}
+
+resource "null_resource" "ds-data-add-to-dev-users" {
+  for_each = local.guest_users
+  provisioner "local-exec" {
+    command = "aws ds-data create-user --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}  --sam-account-name ${each.value.name}"
+  }
+  provisioner "local-exec" {
+    command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password \"${each.value.password}\""
+  }
+  provisioner "local-exec" {
+    command = "aws ds-data add-group-member --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --group-name UserDevQQ --member-name ${each.value.name}"
+  }
+  depends_on = [null_resource.ad_add_dev_group_command]
+    triggers = {
+    timestamp    = timestamp()
+  }
 }
 
 resource "null_resource" "ad_check_user_command" {
@@ -68,10 +113,9 @@ resource "null_resource" "ad_check_user_command" {
     interpreter = local.interpreter
   }
 
-  depends_on = [null_resource.ds-data-add-to-domain-users]
+  depends_on = [null_resource.ds-data-add-to-dev-users, null_resource.ds-data-add-to-guest-users]
 
   triggers = {
-    dummy = var.retry_sleep_seconds
     timestamp    = timestamp()
   }
 }
@@ -82,20 +126,26 @@ locals {
   
   interpreter = local.is_windows ? ["powershell", "-Command"] : ["bash", "-c"]
 
-  ad_add_group_command = "aws ds-data create-group --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --sam-account-name test-group --group-scope DomainLocal"
-  ad_check_user_command = "aws ds-data describe-user --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}  --sam-account-name dev-dev-dev"
+  ad_add_user_group_command = "aws ds-data create-group --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --sam-account-name UserDevQQ --group-scope DomainLocal"
+  ad_add_dev_group_command = "aws ds-data create-group --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --sam-account-name UserGuestQQ --group-scope DomainLocal"
+  ad_check_user_command = "aws ds-data describe-user --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}  --sam-account-name ${var.dev_users_list[0]}"
   
   # OS-specific script content
   powershell_script = <<EOF
-    $maxAttempts = ${var.max_retry_attempts}
-    $sleepTime = ${var.retry_sleep_seconds}
+    $maxAttempts = ${local.max_retry_attempts}
+    $sleepTime = ${local.retry_sleep_seconds}
     $attempt = 1
 
     do {
         Write-Host "Attempt $attempt of $maxAttempts"
+        $ErrorActionPreference = 'Stop'
         try {
-            # Run your AWS command here
-            %s 2>&1
+            $result = %s 2>&1
+            Write-Host "Result: $result"
+            if ($result -match "Group already exists in directory") {
+              Write-Host "Group already exists in directory"
+              exit 0
+            }
             # If no error was thrown, command succeeded
             Write-Host "Command succeeded"
             exit 0
@@ -115,8 +165,8 @@ locals {
 
   bash_script = <<EOF
     #!/bin/bash
-    max_attempts=${var.max_retry_attempts}
-    sleep_time=${var.retry_sleep_seconds}
+    max_attempts=${local.max_retry_attempts}
+    sleep_time=${local.retry_sleep_seconds}
     attempt=1
 
     while true; do

@@ -20,6 +20,8 @@ module "accounts" {
     source = "../../modules/accounts"
     depends_on = [module.connectivity]
  
+    vpc_name = var.vpc_name
+    domain_name = var.domain_name
     aws_vpc = module.connectivity.aws_vpc
     subnets_trusted = module.connectivity.aws_subnets_trusted
     dev_users_list = var.dev_users
@@ -30,11 +32,22 @@ module "workspaces" {
     source = "../../modules/workspaces"
     depends_on = [module.accounts]
 
+    vpc_name = var.vpc_name
     dev_users = module.accounts.dev_users
     guest_users = module.accounts.guest_users
+    app_users = module.accounts.app_users
     dev_image_id = var.dev_image_id
     guest_image_id = var.guest_image_id
+    app_image_id = var.app_image_id
     subnets_trusted = module.connectivity.aws_subnets_trusted
     aws_security_group_workspaces_qq = module.connectivity.aws_security_group_workspaces_qq
     aws_directory_service_directory = module.accounts.aws_directory_service_directory
 }
+
+module "services" {
+    source = "../../modules/services"
+    depends_on = [module.workspaces]
+
+    subnets_trusted = module.connectivity.aws_subnets_trusted
+}
+

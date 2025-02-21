@@ -31,6 +31,7 @@ resource "aws_workspaces_workspace" "devstation" {
     # root_volume_size_gib                      = 80
     running_mode                              = "ALWAYS_ON"
   }
+  depends_on = [aws_workspaces_directory.wsdir_qq]
 }
 
 resource "aws_workspaces_workspace" "gueststation" {
@@ -47,11 +48,13 @@ resource "aws_workspaces_workspace" "gueststation" {
     # user_volume_size_gib                      = 50
     # root_volume_size_gib                      = 80
     running_mode                              = "AUTO_STOP"
-    running_mode_auto_stop_timeout_minutes    = 30
+    running_mode_auto_stop_timeout_in_minutes    = 60
   }
+  depends_on = [aws_workspaces_directory.wsdir_qq]
 }
 
 resource "aws_workspaces_workspace" "appstation" {
+  for_each = var.app_users
   directory_id = var.aws_directory_service_directory.id
   bundle_id    = var.app_image_id
   user_name    = each.value.name
@@ -59,10 +62,30 @@ resource "aws_workspaces_workspace" "appstation" {
   root_volume_encryption_enabled = false
   user_volume_encryption_enabled = false
 
+  ip_group_ids = [aws_workspaces_ip_group.main.id]
+
   workspace_properties {
     compute_type_name                         = "STANDARD"
     # user_volume_size_gib                      = 50
     # root_volume_size_gib                      = 80
     running_mode                              = "ALWAYS_ON"
+  }
+  depends_on = [aws_workspaces_directory.wsdir_qq]
+}
+
+resource "aws_workspaces_ip_group" "main" {
+  name        = "workspace-ip-group"
+
+  tags = {
+    Environment = "Development"
+  }
+}
+
+resource "aws_workspaces_ip_group_rule" "rules" {
+  group_id = aws_workspaces_ip_group.main.id
+
+  rules {
+    source      = "0.0.0.0/0"
+    description = "test IP"
   }
 }

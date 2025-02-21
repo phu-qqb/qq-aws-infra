@@ -5,3 +5,6 @@ variable "dev_users" {}
 variable "dev_image_id" {}
 variable "guest_users" {}
 variable "guest_image_id" {}
+variable "vpc_name" {}
+variable "app_image_id" {}
+variable "app_users" {}

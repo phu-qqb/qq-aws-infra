@@ -1,42 +1,175 @@
-# RDS MSSQL Instances
-resource "aws_db_subnet_group" "trusted" {
-  name       = "trusted-db-subnet-group"
-  subnet_ids = [aws_subnet.trusted.id]
-}
+resource "aws_instance" "gpu_srv_qq" {
+  ami           = "ami-123456" # Replace with actual GPU-enabled AMI
+  instance_type = "p3.2xlarge"
+  subnet_id     = var.subnets_trusted[0].id
 
-resource "aws_db_instance" "mssql" {
-  count                  = 2
-  identifier             = "mssql-instance-${count.index}"
-  engine                 = "sqlserver-ex"
-  instance_class         = "db.t3.micro"
-  allocated_storage      = 20
-  username               = var.rds_username
-  password               = var.rds_password
-  db_subnet_group_name   = aws_db_subnet_group.trusted.name
-  vpc_security_group_ids = [aws_security_group.trusted_resources.id]
-  skip_final_snapshot    = true
-}
-
-# RDS Proxy
-resource "aws_db_proxy" "mssql_proxy" {
-  name                   = "mssql-proxy"
-  debug_logging          = false
-  engine_family          = "SQLSERVER"
-  idle_client_timeout    = 1800
-  require_tls            = true
-  role_arn               = aws_iam_role.rds_proxy.arn
-  vpc_security_group_ids = [aws_security_group.trusted_resources.id]
-  vpc_subnet_ids         = [aws_subnet.trusted.id]
-
-  auth {
-    auth_scheme = "SECRETS"
-    secret_arn  = aws_secretsmanager_secret.rds_credentials.arn
+  tags = {
+    Name = "gpu-srv-qq"
   }
 }
 
-resource "aws_db_proxy_target" "mssql" {
-  count                  = 2
-  db_proxy_name          = aws_db_proxy.mssql_proxy.name
-  target_group_name      = "default"
-  db_instance_identifier = aws_db_instance.mssql[count.index].id
+# Secrets Manager for RDS credentials
+resource "random_password" "rds_passwords" {
+  for_each = var.rds_instances
+
+  length  = 16
+  special = true
+}
+
+resource "aws_secretsmanager_secret" "rds_credentials" {
+  for_each = var.rds_instances
+  
+  name = "rds-credentials-${each.key}-qq"
+  
+  tags = {
+    Environment = each.key
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "rds_credentials" {
+  for_each = var.rds_instances
+
+  secret_id = aws_secretsmanager_secret.rds_credentials[each.key].id
+  secret_string = jsonencode({
+    username = "admin"
+    password = random_password.rds_passwords[each.key].result
+    engine   = "sqlserver-se"
+    host     = aws_db_instance.rds_instances[each.key].endpoint
+    port     = 1433
+    dbname   = "master"
+  })
+}
+
+# IAM role for RDS Proxy
+resource "aws_iam_role" "rds_proxy_role" {
+  name = "rds-proxy-role-qq"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "rds.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "rds_proxy_policy" {
+  name = "rds-proxy-policy-qq"
+  role = aws_iam_role.rds_proxy_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [for secret in aws_secretsmanager_secret.rds_credentials : secret.arn]
+      }
+    ]
+  })
+}
+
+# RDS Instances with updated configuration
+resource "aws_db_instance" "rds_instances" {
+  for_each = var.rds_instances
+
+  identifier           = each.value.identifier
+  engine              = "sqlserver-se"
+  engine_version      = "15.00"
+  instance_class      = each.value.class
+  allocated_storage   = each.value.storage
+  storage_encrypted   = true
+  skip_final_snapshot = true
+
+  db_subnet_group_name   = var.subnets_trusted[0].name
+  vpc_security_group_ids = [aws_security_group.rds_sg.id]
+
+  username = jsondecode(aws_secretsmanager_secret_version.rds_credentials[each.key].secret_string)["username"]
+  password = jsondecode(aws_secretsmanager_secret_version.rds_credentials[each.key].secret_string)["password"]
+}
+
+# RDS Proxies - one for each instance
+resource "aws_db_proxy" "rds_proxies" {
+  for_each = var.rds_instances
+
+  name                   = "rdsproxy-${each.key}-qq"
+  debug_logging         = false
+  engine_family         = "SQLSERVER"
+  idle_client_timeout   = 1800
+  require_tls           = true
+  role_arn             = aws_iam_role.rds_proxy_role.arn
+  vpc_security_group_ids = [aws_security_group.rds_proxy_sg.id]
+  vpc_subnet_ids        = var.subnets_trusted[*].id
+
+  auth {
+    auth_scheme = "SECRETS"
+    iam_auth    = "REQUIRED"
+    secret_arn  = aws_secretsmanager_secret.rds_credentials[each.key].arn
+  }
+
+  tags = {
+    Environment = each.key
+  }
+}
+
+# RDS Proxy Target Groups
+resource "aws_db_proxy_default_target_group" "rds_proxy_targets" {
+  for_each = var.rds_instances
+
+  db_proxy_name = aws_db_proxy.rds_proxies[each.key].name
+
+  connection_pool_config {
+    max_connections_percent = 100
+  }
+}
+
+# RDS Proxy Target Registrations
+resource "aws_db_proxy_target" "rds_proxy_targets" {
+  for_each = var.rds_instances
+
+  db_proxy_name          = aws_db_proxy.rds_proxies[each.key].name
+  target_group_name      = aws_db_proxy_default_target_group.rds_proxy_targets[each.key].name
+  db_instance_identifier = aws_db_instance.rds_instances[each.key].identifier
+}
+
+# Security group for RDS instances
+resource "aws_security_group" "rds_sg" {
+  name        = "rds-sg-qq"
+  description = "Security group for RDS instances"
+  vpc_id      = aws_vpc.vpc_quantum_qb.id
+
+  ingress {
+    from_port       = 1433
+    to_port         = 1433
+    protocol        = "tcp"
+    security_groups = [aws_security_group.rds_proxy_sg.id]
+  }
+}
+
+# Security group for RDS Proxies
+resource "aws_security_group" "rds_proxy_sg" {
+  name        = "rds-proxy-sg-qq"
+  description = "Security group for RDS Proxies"
+  vpc_id      = aws_vpc.vpc_quantum_qb.id
+
+  ingress {
+    from_port       = 1433
+    to_port         = 1433
+    protocol        = "tcp"
+    security_groups = [aws_security_group.workspace_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
