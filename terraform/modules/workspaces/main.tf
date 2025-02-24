@@ -19,7 +19,7 @@ resource "aws_workspaces_directory" "wsdir_qq" {
 
   workspace_creation_properties {
     custom_security_group_id            = var.aws_security_group_workspaces_qq.id
-    default_ou                          = "OU=Users,OU=workspaces,DC=workspaces,DC=qq,DC=com"
+    default_ou                          = "OU=Users,OU=development,DC=development,DC=workspaces,DC=qq"
     enable_internet_access              = false
     enable_maintenance_mode             = false
     user_enabled_as_local_administrator = true
@@ -48,6 +48,10 @@ resource "aws_workspaces_workspace" "devstation" {
     running_mode                              = "ALWAYS_ON"
   }
   depends_on = [aws_workspaces_directory.wsdir_qq]
+  timeouts {
+    create = "60m"
+    delete = "15m"
+  }
 }
 
 resource "aws_workspaces_workspace" "gueststation" {
@@ -67,6 +71,10 @@ resource "aws_workspaces_workspace" "gueststation" {
     running_mode_auto_stop_timeout_in_minutes    = 60
   }
   depends_on = [aws_workspaces_directory.wsdir_qq]
+  timeouts {
+    create = "60m"
+    delete = "15m"
+  }
 }
 
 resource "aws_workspaces_workspace" "appstation" {
@@ -85,4 +93,8 @@ resource "aws_workspaces_workspace" "appstation" {
     running_mode                              = "ALWAYS_ON"
   }
   depends_on = [aws_workspaces_directory.wsdir_qq]
+  timeouts {
+    create = "60m"
+    delete = "15m"
+  }
 }
