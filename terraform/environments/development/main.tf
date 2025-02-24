@@ -49,5 +49,6 @@ module "services" {
     depends_on = [module.workspaces]
 
     subnets_trusted = module.connectivity.aws_subnets_trusted
+    aws_vpc = module.connectivity.aws_vpc
 }
 

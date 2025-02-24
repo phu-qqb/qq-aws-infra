@@ -23,6 +23,5 @@ variable "rds_proxy_name" {
   default = "rds-proxy-qq"
 }
 
-variable "subnets_trusted" {
-  type = list(string)
-}
+variable "subnets_trusted" {}
+variable "aws_vpc" {}

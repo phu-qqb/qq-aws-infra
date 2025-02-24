@@ -34,7 +34,7 @@ resource "aws_secretsmanager_secret_version" "rds_credentials" {
     username = "admin"
     password = random_password.rds_passwords[each.key].result
     engine   = "sqlserver-se"
-    host     = aws_db_instance.rds_instances[each.key].endpoint
+    # host     = aws_db_instance.rds_instances[each.key].endpoint
     port     = 1433
     dbname   = "master"
   })
@@ -76,6 +76,15 @@ resource "aws_iam_role_policy" "rds_proxy_policy" {
   })
 }
 
+resource "aws_db_subnet_group" "default" {
+  name       = "main"
+  subnet_ids = var.subnets_trusted[*].id
+
+  tags = {
+    Name = "My DB subnet group"
+  }
+}
+
 # RDS Instances with updated configuration
 resource "aws_db_instance" "rds_instances" {
   for_each = var.rds_instances
@@ -88,7 +97,7 @@ resource "aws_db_instance" "rds_instances" {
   storage_encrypted   = true
   skip_final_snapshot = true
 
-  db_subnet_group_name   = var.subnets_trusted[0].name
+  db_subnet_group_name   = aws_db_subnet_group.default.name
   vpc_security_group_ids = [aws_security_group.rds_sg.id]
 
   username = jsondecode(aws_secretsmanager_secret_version.rds_credentials[each.key].secret_string)["username"]
@@ -143,7 +152,7 @@ resource "aws_db_proxy_target" "rds_proxy_targets" {
 resource "aws_security_group" "rds_sg" {
   name        = "rds-sg-qq"
   description = "Security group for RDS instances"
-  vpc_id      = aws_vpc.vpc_quantum_qb.id
+  vpc_id      = var.aws_vpc.id
 
   ingress {
     from_port       = 1433
@@ -157,13 +166,12 @@ resource "aws_security_group" "rds_sg" {
 resource "aws_security_group" "rds_proxy_sg" {
   name        = "rds-proxy-sg-qq"
   description = "Security group for RDS Proxies"
-  vpc_id      = aws_vpc.vpc_quantum_qb.id
+  vpc_id      = var.aws_vpc.id
 
   ingress {
     from_port       = 1433
     to_port         = 1433
     protocol        = "tcp"
-    security_groups = [aws_security_group.workspace_sg.id]
   }
 
   egress {
