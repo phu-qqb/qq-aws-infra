@@ -1,6 +1,6 @@
 resource "aws_instance" "gpu_srv_qq" {
-  ami           = "ami-123456" # Replace with actual GPU-enabled AMI
-  instance_type = "p3.2xlarge"
+  ami           = "ami-00710ab5544b60cf7"
+  instance_type = "t2.micro"
   subnet_id     = var.subnets_trusted[0].id
 
   tags = {
@@ -91,6 +91,7 @@ resource "aws_db_instance" "rds_instances" {
 
   identifier           = each.value.identifier
   engine              = "sqlserver-se"
+  license_model        = "license-included"
   engine_version      = "15.00"
   instance_class      = each.value.class
   allocated_storage   = each.value.storage
