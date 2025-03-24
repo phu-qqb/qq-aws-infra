@@ -19,7 +19,7 @@ resource "random_password" "rds_passwords" {
 resource "aws_secretsmanager_secret" "rds_credentials" {
   for_each = var.rds_instances
   
-  name = "rds-credentials-${each.key}-qq"
+  name = "rds-cred-${each.key}-qq"
   
   tags = {
     Environment = each.key
@@ -32,11 +32,11 @@ resource "aws_secretsmanager_secret_version" "rds_credentials" {
   secret_id = aws_secretsmanager_secret.rds_credentials[each.key].id
   secret_string = jsonencode({
     username = "admin"
-    password = random_password.rds_passwords[each.key].result
+    password = "qweasdzxc"
     engine   = "sqlserver-se"
     # host     = aws_db_instance.rds_instances[each.key].endpoint
     port     = 1433
-    dbname   = "master"
+    dbname   = "qq"
   })
 }
 

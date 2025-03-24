@@ -3,16 +3,13 @@ output "aws_directory_service_directory" {
 }
 
 output "app_users" {
-  value = local.app_users
-  sensitive = true
+  value = nonsensitive(local.app_users)
 }
 
 output "guest_users" {
-  value = local.guest_users
-  sensitive = true
+  value = nonsensitive(local.guest_users)
 }
 
 output "dev_users" {
-  value = local.dev_users
-  sensitive = true
+  value = nonsensitive(local.dev_users)
 }

@@ -99,6 +99,7 @@ resource "null_resource" "ds-data-add-to-guest-users" {
   }
   provisioner "local-exec" {
     command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password \"${each.value.password}\""
+    interpreter = local.interpreter
   }
   provisioner "local-exec" {
     command     = format(local.is_windows ? local.powershell_script : local.bash_script, format(local.ad_add_user_to_group_command, "UserGuestQQ", each.value.name))
@@ -118,6 +119,7 @@ resource "null_resource" "ds-data-add-to-dev-users" {
   }
   provisioner "local-exec" {
     command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password \"${each.value.password}\""
+    interpreter = local.interpreter
   }
   provisioner "local-exec" {
     command     = format(local.is_windows ? local.powershell_script : local.bash_script, format(local.ad_add_user_to_group_command, "UserDevQQ", each.value.name))
@@ -137,6 +139,7 @@ resource "null_resource" "ds-data-add-to-app-users" {
   }
   provisioner "local-exec" {
     command = "aws ds reset-user-password --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --user-name ${each.value.name} --new-password \"${each.value.password}\""
+    interpreter = local.interpreter
   }
   provisioner "local-exec" {
     command     = format(local.is_windows ? local.powershell_script : local.bash_script, format(local.ad_add_user_to_group_command, "UserDevQQ", each.value.name))
@@ -166,7 +169,7 @@ locals {
   # Determine OS-specific interpreter and commands
   is_windows = substr(pathexpand("~"), 0, 1) == "/" ? false : true
   
-  interpreter = local.is_windows ? ["powershell", "-Command"] : ["bash", "-c"]
+  interpreter = local.is_windows ? ["pwsh", "-Command"] : ["bash", "-c"]
 
   ad_enable_management_command = "aws ds enable-directory-data-access --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id}"
   ad_add_user_group_command = "aws ds-data create-group --directory-id ${aws_directory_service_directory.dir_workspaces_qq.id} --sam-account-name UserDevQQ --group-scope DomainLocal"
